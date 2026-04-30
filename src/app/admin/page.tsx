@@ -126,9 +126,13 @@ export default async function AdminOverviewPage() {
     .eq('status', 'redeemed');
 
   const counts = new Map<string, { name: string; count: number }>();
-  for (const row of (redeemedRows ?? []) as Array<{ restaurant_id: string; restaurants: { name: string } | null }>) {
+  // Supabase's foreign-key embed types `restaurants` loosely; defensively handle
+  // either an object or an array shape.
+  type RedeemedRow = { restaurant_id: string; restaurants: { name?: string | null } | { name?: string | null }[] | null };
+  for (const row of (redeemedRows ?? []) as unknown as RedeemedRow[]) {
     const id = row.restaurant_id;
-    const name = row.restaurants?.name ?? '(unknown)';
+    const r = Array.isArray(row.restaurants) ? row.restaurants[0] : row.restaurants;
+    const name = r?.name ?? '(unknown)';
     const cur = counts.get(id);
     if (cur) cur.count += 1;
     else counts.set(id, { name, count: 1 });
@@ -267,7 +271,8 @@ export default async function AdminOverviewPage() {
                 <div className="p-6 text-sm text-ink-500">No vouchers yet.</div>
               )}
               {(recentVouchers ?? []).map((v) => {
-                const r = (v as unknown as { restaurants: { name: string } | null }).restaurants;
+                const raw = (v as unknown as { restaurants: { name?: string | null } | { name?: string | null }[] | null }).restaurants;
+                const r = Array.isArray(raw) ? raw[0] : raw;
                 return (
                   <div
                     key={v.id}

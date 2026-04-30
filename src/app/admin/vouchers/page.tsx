@@ -179,8 +179,9 @@ export default async function AdminVouchersPage({
             <div className="p-6 text-sm text-ink-500">No vouchers match these filters.</div>
           )}
           {(vouchers ?? []).map((v) => {
-            const restaurantName =
-              (v as unknown as { restaurants: { name: string } | null }).restaurants?.name ?? '—';
+            const raw = (v as unknown as { restaurants: { name?: string | null } | { name?: string | null }[] | null }).restaurants;
+            const restaurant = Array.isArray(raw) ? raw[0] : raw;
+            const restaurantName = restaurant?.name ?? '—';
             return (
               <div
                 key={v.id}
