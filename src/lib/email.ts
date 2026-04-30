@@ -1,16 +1,16 @@
-import { Resend } from 'resend';
+/**
+ * Email sending via Brevo's transactional email API.
+ *
+ * Why Brevo: free tier supports multiple verified domains (Resend's free tier is 1).
+ * API: https://developers.brevo.com/reference/sendtransacemail
+ *
+ * Required env vars:
+ *   BREVO_API_KEY        — generated at https://app.brevo.com/settings/keys/api
+ *   BREVO_FROM_EMAIL     — e.g. "vouchers@freehalalmeal.com"  (must be verified in Brevo)
+ *   BREVO_FROM_NAME      — display name, e.g. "FreeHalalMeal.com"
+ */
 
-// Lazy-init the Resend client. Constructing it at module load throws when
-// RESEND_API_KEY is unset, which breaks Next.js's build-time route collection.
-let _resend: Resend | null = null;
-function getResend(): Resend | null {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) return null;
-  if (!_resend) _resend = new Resend(key);
-  return _resend;
-}
-
-const FROM = process.env.RESEND_FROM_EMAIL ?? 'FreeHalalMeal.com <vouchers@freehalalmeal.com>';
+const BREVO_ENDPOINT = 'https://api.brevo.com/v3/smtp/email';
 
 interface VoucherEmailProps {
   to: string;
@@ -19,7 +19,17 @@ interface VoucherEmailProps {
   menuItemName: string;
   expiresAt: Date;
   voucherUrl: string;
-  pdfBuffer: Buffer;
+  pdfBuffer: Buffer | Uint8Array;
+}
+
+function envOrNull(name: string): string | null {
+  const v = process.env[name];
+  return v && v.trim().length > 0 ? v.trim() : null;
+}
+
+function bufferToBase64(buf: Buffer | Uint8Array): string {
+  if (Buffer.isBuffer(buf)) return buf.toString('base64');
+  return Buffer.from(buf).toString('base64');
 }
 
 export async function sendVoucherEmail({
@@ -31,6 +41,17 @@ export async function sendVoucherEmail({
   voucherUrl,
   pdfBuffer,
 }: VoucherEmailProps) {
+  const apiKey = envOrNull('BREVO_API_KEY');
+  const fromEmail = envOrNull('BREVO_FROM_EMAIL') ?? 'vouchers@freehalalmeal.com';
+  const fromName = envOrNull('BREVO_FROM_NAME') ?? 'FreeHalalMeal.com';
+
+  if (!apiKey) {
+    console.warn(
+      '[email] BREVO_API_KEY not set; skipping email send. Voucher is still issued.',
+    );
+    return { skipped: true } as const;
+  }
+
   const html = `
   <!DOCTYPE html>
   <html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#fffdf7;padding:24px;color:#0f172a;">
@@ -67,23 +88,36 @@ export async function sendVoucherEmail({
     </div>
   </body></html>`;
 
-  const resend = getResend();
-  if (!resend) {
-    console.warn(
-      '[email] RESEND_API_KEY not set; skipping email send. Voucher is still issued.',
-    );
-    return { skipped: true } as const;
-  }
-  return resend.emails.send({
-    from: FROM,
-    to,
+  const body = {
+    sender: { email: fromEmail, name: fromName },
+    to: [{ email: to }],
     subject: `Your free meal voucher · ${restaurantName}`,
-    html,
-    attachments: [
+    htmlContent: html,
+    attachment: [
       {
-        filename: `voucher-${voucherCode}.pdf`,
-        content: pdfBuffer,
+        name: `voucher-${voucherCode}.pdf`,
+        content: bufferToBase64(pdfBuffer),
       },
     ],
+  };
+
+  const res = await fetch(BREVO_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'api-key': apiKey,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(body),
   });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    console.error('[email] Brevo send failed:', res.status, text);
+    // Don't throw — we don't want to fail the voucher claim if email is broken.
+    return { error: true, status: res.status } as const;
+  }
+
+  const json = (await res.json().catch(() => ({}))) as { messageId?: string };
+  return { messageId: json.messageId };
 }
