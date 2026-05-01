@@ -1,35 +1,43 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { createServerClient } from '@supabase/ssr';
 
 /**
  * Refresh Supabase session on every request so server components have a fresh user.
+ *
+ * Uses the getAll/setAll cookie API — required for PKCE code-verifier cookies
+ * to round-trip correctly during magic-link / OAuth flows.
  */
 export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({ request: { headers: request.headers } });
+  let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return request.cookies.get(name)?.value;
+        getAll() {
+          return request.cookies.getAll();
         },
-        set(name: string, value: string, options: CookieOptions) {
-          request.cookies.set({ name, value, ...options });
-          response = NextResponse.next({ request: { headers: request.headers } });
-          response.cookies.set({ name, value, ...options });
-        },
-        remove(name: string, options: CookieOptions) {
-          request.cookies.set({ name, value: '', ...options });
-          response = NextResponse.next({ request: { headers: request.headers } });
-          response.cookies.set({ name, value: '', ...options });
+        setAll(cookiesToSet) {
+          // Mirror the cookies into both the incoming request and the
+          // outgoing response so downstream handlers and the browser see
+          // the freshly written values.
+          cookiesToSet.forEach(({ name, value }) => {
+            request.cookies.set(name, value);
+          });
+          response = NextResponse.next({ request });
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
         },
       },
     },
   );
 
+  // IMPORTANT: do not run code between createServerClient and getUser.
+  // A bug here can cause the session to silently fail to refresh.
   await supabase.auth.getUser();
+
   return response;
 }
 

@@ -1,9 +1,14 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 
 /**
  * Server-side Supabase client (App Router server components / route handlers).
  * Uses anon key with RLS — respects the user's session.
+ *
+ * Uses the getAll/setAll cookie API (preferred over get/set/remove) — this is
+ * the canonical pattern for @supabase/ssr 0.5+ and is required for PKCE
+ * code-verifier cookies to round-trip correctly between the browser and
+ * server during OAuth/magic-link flows.
  */
 export function createClient() {
   const cookieStore = cookies();
@@ -12,21 +17,18 @@ export function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
+        getAll() {
+          return cookieStore.getAll();
         },
-        set(name: string, value: string, options: CookieOptions) {
+        setAll(cookiesToSet) {
           try {
-            cookieStore.set({ name, value, ...options });
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
           } catch {
             // Calling set from a Server Component throws; safe to ignore
             // when middleware refreshes the session.
           }
-        },
-        remove(name: string, options: CookieOptions) {
-          try {
-            cookieStore.set({ name, value: '', ...options });
-          } catch {}
         },
       },
     },
