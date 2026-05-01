@@ -44,8 +44,12 @@ export async function generateVoucherPdf({
   page.drawText('Free Halal Meal Voucher', {
     x: 40, y: 715, size: 11, font: helv, color: rgb(0.85, 0.95, 0.9),
   });
-  page.drawText('﷽', {
-    x: 540, y: 730, size: 28, font: helv, color: rgb(1, 1, 1),
+  // Romanized Bismillah — pdf-lib's Standard Helvetica is WinAnsi-only and
+  // can't encode the single-glyph ﷽ (U+FDFD). We use the romanization for now
+  // to keep the spiritual framing visible in the PDF; embedding a Unicode
+  // Arabic font (e.g. Noto Naskh) is a follow-up polish item.
+  page.drawText('Bismillah', {
+    x: 478, y: 738, size: 16, font: times, color: rgb(1, 1, 1),
   });
 
   // Voucher box
