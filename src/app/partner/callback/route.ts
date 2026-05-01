@@ -53,14 +53,26 @@ export async function GET(request: NextRequest) {
 
   const supabase = createClient();
 
-  // Debug: log cookie names visible to the server when the callback runs.
-  // Helps diagnose PKCE-verifier-not-found errors. Logs only names, never values.
+  // Debug: log request context to diagnose PKCE-verifier-not-found errors.
+  // Names only, never values, never the auth code itself.
   try {
     const { cookies: nextCookies } = await import('next/headers');
     const allCookieNames = nextCookies().getAll().map((c) => c.name);
-    console.log('[partner/callback] cookies on request:', JSON.stringify(allCookieNames));
+    const host = request.headers.get('host') ?? 'unknown';
+    const referer = request.headers.get('referer') ?? 'none';
+    const cookieHeaderLength = (request.headers.get('cookie') ?? '').length;
+    console.log(
+      '[partner/callback]',
+      JSON.stringify({
+        host,
+        referer,
+        cookieHeaderLength,
+        cookieNames: allCookieNames,
+        url: request.url.replace(/code=[^&]+/, 'code=REDACTED'),
+      }),
+    );
   } catch (e) {
-    console.warn('[partner/callback] could not read cookie list:', e);
+    console.warn('[partner/callback] could not read request context:', e);
   }
 
   const { error: exchangeErr } = await supabase.auth.exchangeCodeForSession(code);
