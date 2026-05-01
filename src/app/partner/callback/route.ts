@@ -52,8 +52,20 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = createClient();
+
+  // Debug: log cookie names visible to the server when the callback runs.
+  // Helps diagnose PKCE-verifier-not-found errors. Logs only names, never values.
+  try {
+    const { cookies: nextCookies } = await import('next/headers');
+    const allCookieNames = nextCookies().getAll().map((c) => c.name);
+    console.log('[partner/callback] cookies on request:', JSON.stringify(allCookieNames));
+  } catch (e) {
+    console.warn('[partner/callback] could not read cookie list:', e);
+  }
+
   const { error: exchangeErr } = await supabase.auth.exchangeCodeForSession(code);
   if (exchangeErr) {
+    console.error('[partner/callback] exchangeCodeForSession failed:', exchangeErr.message);
     const url = new URL('/partner/login', origin);
     url.searchParams.set('error', exchangeErr.message);
     if (next) url.searchParams.set('next', next);
