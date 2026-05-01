@@ -37,9 +37,9 @@ export function SetupWizard({ restaurant, initialStep, hasLocation, hasMenuItem 
   const [latitude, setLatitude] = useState<string>('');
   const [longitude, setLongitude] = useState<string>('');
 
-  async function handleGeocode(form: HTMLFormElement) {
+  async function handleGeocode(form: HTMLFormElement, opts?: { silent?: boolean }) {
     setGeocoding(true);
-    setError(null);
+    if (!opts?.silent) setError(null);
     try {
       const fd = new FormData(form);
       const parts = [
@@ -52,7 +52,9 @@ export function SetupWizard({ restaurant, initialStep, hasLocation, hasMenuItem 
         .filter(Boolean)
         .join(', ');
       if (!parts) {
-        setError('Add at least an address line and city before geocoding.');
+        if (!opts?.silent) {
+          setError('Add at least an address line and city before geocoding.');
+        }
         return;
       }
       // Public Nominatim API. Note: production should set a custom User-Agent
@@ -63,14 +65,32 @@ export function SetupWizard({ restaurant, initialStep, hasLocation, hasMenuItem 
       if (Array.isArray(data) && data[0]) {
         setLatitude(String(data[0].lat));
         setLongitude(String(data[0].lon));
-      } else {
+      } else if (!opts?.silent) {
         setError('Could not geocode that address. You can leave lat/lng blank for now.');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Geocoding failed.');
+      if (!opts?.silent) {
+        setError(err instanceof Error ? err.message : 'Geocoding failed.');
+      }
     } finally {
       setGeocoding(false);
     }
+  }
+
+  /**
+   * Auto-trigger geocode when address fields lose focus, if lat/lng are still
+   * empty AND we have at least an address line + city. Silent on failure so it
+   * doesn't pop an error if the user is mid-typing — they can still hit the
+   * Geocode button manually for an explicit attempt with a visible error.
+   */
+  function handleAddressBlur(e: React.FocusEvent<HTMLInputElement>) {
+    if (latitude || longitude) return;
+    const form = e.currentTarget.form;
+    if (!form) return;
+    const fd = new FormData(form);
+    const hasMinimum = !!(fd.get('address_line1') && fd.get('city'));
+    if (!hasMinimum) return;
+    handleGeocode(form, { silent: true });
   }
 
   function handleStep1(formData: FormData) {
@@ -243,7 +263,7 @@ export function SetupWizard({ restaurant, initialStep, hasLocation, hasMenuItem 
 
           <div>
             <label className="label" htmlFor="address_line1">Address line 1</label>
-            <input id="address_line1" name="address_line1" required className="input" />
+            <input id="address_line1" name="address_line1" required onBlur={handleAddressBlur} className="input" />
           </div>
           <div>
             <label className="label" htmlFor="address_line2">Address line 2 (optional)</label>
@@ -253,22 +273,22 @@ export function SetupWizard({ restaurant, initialStep, hasLocation, hasMenuItem 
           <div className="grid sm:grid-cols-2 gap-5">
             <div>
               <label className="label" htmlFor="city">City</label>
-              <input id="city" name="city" required className="input" />
+              <input id="city" name="city" required onBlur={handleAddressBlur} className="input" />
             </div>
             <div>
               <label className="label" htmlFor="region">Region / State</label>
-              <input id="region" name="region" className="input" />
+              <input id="region" name="region" onBlur={handleAddressBlur} className="input" />
             </div>
           </div>
 
           <div className="grid sm:grid-cols-2 gap-5">
             <div>
               <label className="label" htmlFor="postal_code">Postal code</label>
-              <input id="postal_code" name="postal_code" className="input" />
+              <input id="postal_code" name="postal_code" onBlur={handleAddressBlur} className="input" />
             </div>
             <div>
               <label className="label" htmlFor="country">Country (ISO-2)</label>
-              <input id="country" name="country" required maxLength={2} placeholder="US" className="input uppercase" />
+              <input id="country" name="country" required maxLength={2} placeholder="US" onBlur={handleAddressBlur} className="input uppercase" />
             </div>
           </div>
 

@@ -166,9 +166,9 @@ function LocationFormModal({
   const [longitude, setLongitude] = useState<string>(location?.longitude?.toString() ?? '');
   const isEdit = !!location;
 
-  async function handleGeocode(form: HTMLFormElement) {
+  async function handleGeocode(form: HTMLFormElement, opts?: { silent?: boolean }) {
     setGeocoding(true);
-    setError(null);
+    if (!opts?.silent) setError(null);
     try {
       const fd = new FormData(form);
       const parts = [
@@ -179,7 +179,7 @@ function LocationFormModal({
         fd.get('country'),
       ].filter(Boolean).join(', ');
       if (!parts) {
-        setError('Add at least an address line and city before geocoding.');
+        if (!opts?.silent) setError('Add at least an address line and city before geocoding.');
         return;
       }
       // Public Nominatim API. Production should set User-Agent via server proxy.
@@ -189,14 +189,28 @@ function LocationFormModal({
       if (Array.isArray(data) && data[0]) {
         setLatitude(String(data[0].lat));
         setLongitude(String(data[0].lon));
-      } else {
+      } else if (!opts?.silent) {
         setError('Could not geocode that address.');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Geocoding failed.');
+      if (!opts?.silent) setError(err instanceof Error ? err.message : 'Geocoding failed.');
     } finally {
       setGeocoding(false);
     }
+  }
+
+  /**
+   * Auto-fire geocode silently when address fields lose focus, if lat/lng are
+   * still empty. Don't override values the user may have typed manually.
+   */
+  function handleAddressBlur(e: React.FocusEvent<HTMLInputElement>) {
+    if (latitude || longitude) return;
+    const form = e.currentTarget.form;
+    if (!form) return;
+    const fd = new FormData(form);
+    const hasMinimum = !!(fd.get('address_line1') && fd.get('city'));
+    if (!hasMinimum) return;
+    handleGeocode(form, { silent: true });
   }
 
   function onSubmit(formData: FormData) {
@@ -241,7 +255,7 @@ function LocationFormModal({
           </div>
           <div>
             <label className="label">Address line 1</label>
-            <input name="address_line1" required defaultValue={location?.address_line1 ?? ''} className="input" />
+            <input name="address_line1" required defaultValue={location?.address_line1 ?? ''} onBlur={handleAddressBlur} className="input" />
           </div>
           <div>
             <label className="label">Address line 2 (optional)</label>
@@ -250,21 +264,21 @@ function LocationFormModal({
           <div className="grid sm:grid-cols-2 gap-5">
             <div>
               <label className="label">City</label>
-              <input name="city" required defaultValue={location?.city ?? ''} className="input" />
+              <input name="city" required defaultValue={location?.city ?? ''} onBlur={handleAddressBlur} className="input" />
             </div>
             <div>
               <label className="label">Region / State</label>
-              <input name="region" defaultValue={location?.region ?? ''} className="input" />
+              <input name="region" defaultValue={location?.region ?? ''} onBlur={handleAddressBlur} className="input" />
             </div>
           </div>
           <div className="grid sm:grid-cols-2 gap-5">
             <div>
               <label className="label">Postal code</label>
-              <input name="postal_code" defaultValue={location?.postal_code ?? ''} className="input" />
+              <input name="postal_code" defaultValue={location?.postal_code ?? ''} onBlur={handleAddressBlur} className="input" />
             </div>
             <div>
               <label className="label">Country (ISO-2)</label>
-              <input name="country" required maxLength={2} defaultValue={location?.country ?? ''} placeholder="US" className="input uppercase" />
+              <input name="country" required maxLength={2} defaultValue={location?.country ?? ''} placeholder="US" onBlur={handleAddressBlur} className="input uppercase" />
             </div>
           </div>
           <div>
