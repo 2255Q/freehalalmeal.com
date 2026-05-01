@@ -1,5 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
+
+type CookieToSet = { name: string; value: string; options: CookieOptions };
 
 /**
  * Refresh Supabase session on every request so server components have a fresh user.
@@ -18,7 +20,7 @@ export async function middleware(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: CookieToSet[]) {
           // Mirror the cookies into both the incoming request and the
           // outgoing response so downstream handlers and the browser see
           // the freshly written values.
