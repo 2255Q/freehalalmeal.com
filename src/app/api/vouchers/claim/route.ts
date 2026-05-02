@@ -158,6 +158,7 @@ export async function POST(req: Request) {
     address_line2: string | null;
     city: string;
     region: string | null;
+    postal_code: string | null;
     country: string;
     available_days: number[];
     available_from: string;
@@ -171,7 +172,7 @@ export async function POST(req: Request) {
     const { data: locRow } = await supabase
       .from('locations')
       .select(
-        'id, label, address_line1, address_line2, city, region, country, available_days, available_from, available_until, daily_meal_limit, is_active, restaurant_id',
+        'id, label, address_line1, address_line2, city, region, postal_code, country, available_days, available_from, available_until, daily_meal_limit, is_active, restaurant_id',
       )
       .eq('id', location_id)
       .maybeSingle();
@@ -187,7 +188,7 @@ export async function POST(req: Request) {
     const { data: locRow } = await supabase
       .from('locations')
       .select(
-        'id, label, address_line1, address_line2, city, region, country, available_days, available_from, available_until, daily_meal_limit, is_active, restaurant_id',
+        'id, label, address_line1, address_line2, city, region, postal_code, country, available_days, available_from, available_until, daily_meal_limit, is_active, restaurant_id',
       )
       .eq('restaurant_id', restaurant_id)
       .eq('is_active', true)
@@ -277,7 +278,21 @@ export async function POST(req: Request) {
   }
 
   const voucherUrl = `${siteUrl()}/voucher/${inserted.code}`;
-  const addressBits = [location.address_line1, location.address_line2, location.city]
+  // Build a single-line postal-style address: street, city + region + postal, country.
+  // The inner join groups region + postal_code with a single space ("ON M5C 1W4")
+  // so the outer comma-join doesn't put a comma between them.
+  const cityRegion = [
+    location.city,
+    [location.region, location.postal_code].filter(Boolean).join(' ').trim(),
+  ]
+    .filter(Boolean)
+    .join(', ');
+  const addressBits = [
+    location.address_line1,
+    location.address_line2,
+    cityRegion,
+    location.country,
+  ]
     .filter(Boolean)
     .join(', ');
 
