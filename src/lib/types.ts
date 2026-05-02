@@ -2,7 +2,7 @@
  * Shared TypeScript types for FreeHalalMeal.com
  */
 
-export type RestaurantStatus = 'pending' | 'active' | 'suspended';
+export type RestaurantStatus = 'pending' | 'active' | 'paused' | 'suspended';
 export type VoucherStatus = 'issued' | 'redeemed' | 'expired' | 'voided';
 
 export interface Restaurant {
@@ -18,6 +18,11 @@ export interface Restaurant {
   phone: string | null;
   email: string;
   status: RestaurantStatus;
+  /** Cap across all locations for the current calendar month (UTC). NULL = unlimited. */
+  monthly_meal_limit: number | null;
+  /** Scheduled pause window. If `now()` is between these two values (inclusive of either NULL bound), the API rejects claims with status='paused'. */
+  paused_from: string | null;
+  paused_until: string | null;
   created_at: string;
   updated_at: string;
 }

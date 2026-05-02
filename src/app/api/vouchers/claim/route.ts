@@ -143,10 +143,12 @@ export async function POST(req: Request) {
     }
   }
 
-  // Restaurant — must be active
+  // Restaurant — must be active. We also pull the scheduled-pause window and
+  // monthly cap here in the same round-trip so the checks below don't need a
+  // second query against the restaurants table.
   const { data: restaurant, error: rErr } = await supabase
     .from('restaurants')
-    .select('id, name, status')
+    .select('id, name, status, monthly_meal_limit, paused_from, paused_until')
     .eq('id', restaurant_id)
     .maybeSingle();
   if (rErr || !restaurant || restaurant.status !== 'active') {
@@ -154,6 +156,55 @@ export async function POST(req: Request) {
       { ok: false, error: 'This restaurant is not currently accepting claims.' },
       { status: 404 },
     );
+  }
+
+  // Single `now` for the whole request: every time-based check below (pause
+  // window, monthly cap, hours, voucher expiry) reads from the same instant
+  // so a long-running request can't straddle e.g. a month boundary and give
+  // inconsistent answers.
+  const now = new Date();
+
+  // Scheduled-pause check. Restaurants can set a future pause window without
+  // having an admin flip status to 'paused' at the exact moment — we enforce
+  // the schedule on every request instead of mutating restaurant.status, so
+  // the pause auto-lifts when paused_until passes (no cron / no stale state).
+  // Either bound being NULL means open-ended on that side.
+  const pausedFrom = restaurant.paused_from ? new Date(restaurant.paused_from) : null;
+  const pausedUntil = restaurant.paused_until ? new Date(restaurant.paused_until) : null;
+  const afterStart = pausedFrom === null || now >= pausedFrom;
+  const beforeEnd = pausedUntil === null || now <= pausedUntil;
+  // Only treat as paused if at least one bound is set — both NULL means no
+  // pause is scheduled at all (the row's defaults), not "paused forever".
+  if ((pausedFrom !== null || pausedUntil !== null) && afterStart && beforeEnd) {
+    return NextResponse.json(
+      { ok: false, error: 'This restaurant is currently paused. Please try again later.' },
+      { status: 423 },
+    );
+  }
+
+  // Monthly meal cap (across all of this restaurant's locations). Distinct
+  // from the per-location daily_meal_limit below: lets a restaurant cap their
+  // total monthly commitment regardless of how many locations they operate.
+  // NULL means unlimited (don't even run the count query in that case).
+  if (restaurant.monthly_meal_limit !== null) {
+    const startOfMonth = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+    );
+    const { count: issuedThisMonth } = await supabase
+      .from('vouchers')
+      .select('id', { count: 'exact', head: true })
+      .eq('restaurant_id', restaurant_id)
+      .gte('created_at', startOfMonth.toISOString());
+    if ((issuedThisMonth ?? 0) >= restaurant.monthly_meal_limit) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'This restaurant has reached its monthly meal cap. Please come back next month.',
+        },
+        { status: 429 },
+      );
+    }
   }
 
   // Menu item — must belong to restaurant + active
@@ -228,8 +279,9 @@ export async function POST(req: Request) {
     location = locRow;
   }
 
-  // Hours check (UTC-approximate — see TODO above)
-  const now = new Date();
+  // Hours check (UTC-approximate — see TODO above). `now` was captured
+  // earlier alongside the pause/monthly checks so all time-based checks in
+  // this request agree on a single instant.
   if (!withinHours(location, now)) {
     // Don't hard-block — many restaurants may set generous windows. We surface a
     // gentle warning but still issue (voucher is valid 48h regardless).

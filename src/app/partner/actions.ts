@@ -38,12 +38,37 @@ function getNumber(v: FormDataEntryValue | null, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function getPositiveIntOrNull(v: FormDataEntryValue | null): number | null {
+  if (v === null) return null;
+  const s = String(v).trim();
+  if (!s.length) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n)) return null;
+  const i = Math.trunc(n);
+  return i > 0 ? i : null;
+}
+
+function getIsoOrNull(v: FormDataEntryValue | null): string | null {
+  if (v === null) return null;
+  const s = String(v).trim();
+  if (!s.length) return null;
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
 // =============================================================================
 // Restaurant
 // =============================================================================
 
 export async function updateRestaurant(formData: FormData) {
   const { supabase, restaurant } = await requireOwnerRestaurant();
+
+  const paused_from = getIsoOrNull(formData.get('paused_from'));
+  const paused_until = getIsoOrNull(formData.get('paused_until'));
+  if (paused_from && paused_until && paused_from > paused_until) {
+    throw new Error('Pause window end must be after the start');
+  }
 
   const patch = {
     name: String(formData.get('name') ?? '').trim() || restaurant.name,
@@ -54,11 +79,44 @@ export async function updateRestaurant(formData: FormData) {
     website: emptyToNull(formData.get('website')),
     phone: emptyToNull(formData.get('phone')),
     email: String(formData.get('email') ?? '').trim() || restaurant.email,
+    monthly_meal_limit: getPositiveIntOrNull(formData.get('monthly_meal_limit')),
+    paused_from,
+    paused_until,
   };
 
   const { error } = await supabase
     .from('restaurants')
     .update(patch)
+    .eq('id', restaurant.id);
+  if (error) throw error;
+
+  revalidatePath('/partner/dashboard', 'layout');
+  revalidatePath('/partner/dashboard/settings');
+}
+
+export async function pauseRestaurant() {
+  const { supabase, restaurant } = await requireOwnerRestaurant();
+  if (restaurant.status === 'suspended') {
+    throw new Error('Suspended accounts cannot be self-managed. Contact support.');
+  }
+  const { error } = await supabase
+    .from('restaurants')
+    .update({ status: 'paused' })
+    .eq('id', restaurant.id);
+  if (error) throw error;
+
+  revalidatePath('/partner/dashboard', 'layout');
+  revalidatePath('/partner/dashboard/settings');
+}
+
+export async function resumeRestaurant() {
+  const { supabase, restaurant } = await requireOwnerRestaurant();
+  if (restaurant.status === 'suspended') {
+    throw new Error('Suspended accounts cannot be self-managed. Contact support.');
+  }
+  const { error } = await supabase
+    .from('restaurants')
+    .update({ status: 'active' })
     .eq('id', restaurant.id);
   if (error) throw error;
 
