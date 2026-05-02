@@ -130,7 +130,7 @@ export async function POST(req: Request) {
       .from('vouchers')
       .select('id', { count: 'exact', head: true })
       .eq('ip_address', ip)
-      .gte('created_at', oneHourAgoIso);
+      .gte('issued_at', oneHourAgoIso);
     if ((recentByIp ?? 0) >= RATE_LIMIT_PER_IP_PER_HOUR) {
       return NextResponse.json(
         {
@@ -194,7 +194,7 @@ export async function POST(req: Request) {
       .from('vouchers')
       .select('id', { count: 'exact', head: true })
       .eq('restaurant_id', restaurant_id)
-      .gte('created_at', startOfMonth.toISOString());
+      .gte('issued_at', startOfMonth.toISOString());
     if ((issuedThisMonth ?? 0) >= restaurant.monthly_meal_limit) {
       return NextResponse.json(
         {
