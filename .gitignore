@@ -40,3 +40,6 @@ next-env.d.ts
 # IDE
 .idea/
 .vscode/
+
+# Local scratch / smoke-test scaffolding
+.tmp-smoke/

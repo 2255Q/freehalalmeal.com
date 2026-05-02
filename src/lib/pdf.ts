@@ -1,5 +1,26 @@
+import fs from 'fs';
+import path from 'path';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
 import QRCode from 'qrcode';
+
+// Load the Arabic font lazily on first use. The path is resolved against
+// process.cwd() at call time (NOT at module init), so the resolution still
+// works if cwd is changed before the first PDF is generated. process.cwd()
+// is the project root in `next dev` and on Vercel; next.config.js
+// outputFileTracingIncludes ensures the file is bundled into the
+// /api/vouchers/claim serverless function on Vercel.
+let arabicFontBytes: Uint8Array | null = null;
+function loadArabicFont(): Uint8Array {
+  if (!arabicFontBytes) {
+    const fontPath = path.join(
+      process.cwd(),
+      'src/lib/fonts/NotoNaskhArabic-Regular.ttf',
+    );
+    arabicFontBytes = fs.readFileSync(fontPath);
+  }
+  return arabicFontBytes;
+}
 
 interface VoucherPdfProps {
   voucherCode: string;
@@ -21,12 +42,19 @@ export async function generateVoucherPdf({
   redeemUrl,
 }: VoucherPdfProps): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
+  pdf.registerFontkit(fontkit);
   // 612 x 792 = US Letter
   const page = pdf.addPage([612, 792]);
 
   const helv = await pdf.embedFont(StandardFonts.Helvetica);
   const helvBold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const times = await pdf.embedFont(StandardFonts.TimesRomanBold);
+  // Embed the Arabic font WITHOUT subsetting. pdf-lib's subsetter has a
+  // known issue with the U+FDFD Bismillah ligature glyph — when subsetting
+  // is on, the glyph is silently dropped from the embedded font even though
+  // fontkit reports the codepoint is present. Embedding the full font costs
+  // ~300KB per PDF, which is fine for an email attachment.
+  const arabic = await pdf.embedFont(loadArabicFont());
 
   const green = rgb(0.02, 0.59, 0.41);
   const ink = rgb(0.06, 0.09, 0.16);
@@ -44,12 +72,17 @@ export async function generateVoucherPdf({
   page.drawText('Free Halal Meal Voucher', {
     x: 40, y: 715, size: 11, font: helv, color: rgb(0.85, 0.95, 0.9),
   });
-  // Romanized Bismillah — pdf-lib's Standard Helvetica is WinAnsi-only and
-  // can't encode the single-glyph ﷽ (U+FDFD). We use the romanization for now
-  // to keep the spiritual framing visible in the PDF; embedding a Unicode
-  // Arabic font (e.g. Noto Naskh) is a follow-up polish item.
-  page.drawText('Bismillah', {
-    x: 478, y: 738, size: 16, font: times, color: rgb(1, 1, 1),
+  // Bismillah ligature ﷽ (U+FDFD) — single-codepoint Arabic ligature meaning
+  // "In the name of Allah, the Most Gracious, the Most Merciful." Rendered via
+  // the embedded Noto Naskh Arabic font; pdf-lib's StandardFonts can't encode
+  // it because they're WinAnsi-only.
+  //
+  // Note: this glyph has an unusually wide advance (~12 ems in Noto Naskh
+  // Arabic), so it must be drawn at a smaller size than typical headings.
+  // At size=14 it occupies ~170pt wide × ~24pt tall, fitting the right side
+  // of the green header band. x=412 right-aligns it with a ~30pt margin.
+  page.drawText('﷽', {
+    x: 412, y: 737, size: 14, font: arabic, color: rgb(1, 1, 1),
   });
 
   // Voucher box
