@@ -117,6 +117,30 @@ export async function POST(req: Request) {
         { status: 403 },
       );
     }
+
+    // Per-IP rate limit: cap claims per hour per IP. The honeypot + per-day-
+    // per-email-per-restaurant unique constraint defends against naive bots,
+    // but a determined attacker rotating emails could still flood the DB or
+    // exhaust the email-provider quota. Counting recent claims by IP via the
+    // existing vouchers table avoids a new dependency (no Redis/KV needed).
+    // Limit is generous enough for shared-IP scenarios (families, libraries).
+    const RATE_LIMIT_PER_IP_PER_HOUR = 10;
+    const oneHourAgoIso = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count: recentByIp } = await supabase
+      .from('vouchers')
+      .select('id', { count: 'exact', head: true })
+      .eq('ip_address', ip)
+      .gte('created_at', oneHourAgoIso);
+    if ((recentByIp ?? 0) >= RATE_LIMIT_PER_IP_PER_HOUR) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'Too many claims from this network in the last hour. Please try again later.',
+        },
+        { status: 429 },
+      );
+    }
   }
 
   // Restaurant — must be active

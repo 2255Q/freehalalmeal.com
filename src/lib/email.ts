@@ -32,6 +32,21 @@ function bufferToBase64(buf: Buffer | Uint8Array): string {
   return Buffer.from(buf).toString('base64');
 }
 
+/**
+ * HTML-escape a string before interpolating into an email template.
+ * Restaurant + menu names are user-controlled; without escaping, a malicious
+ * restaurant could inject markup into every voucher email sent for them
+ * (broken layout, phishing links, etc).
+ */
+function esc(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export async function sendVoucherEmail({
   to,
   voucherCode,
@@ -65,18 +80,18 @@ export async function sendVoucherEmail({
           Assalamu alaikum,
         </p>
         <p style="font-size:16px;line-height:1.6;margin:0 0 16px;">
-          Your voucher for <strong>${menuItemName}</strong> at <strong>${restaurantName}</strong> is ready.
+          Your voucher for <strong>${esc(menuItemName)}</strong> at <strong>${esc(restaurantName)}</strong> is ready.
           Show this email or the attached PDF at the restaurant — they will scan or enter your code.
         </p>
         <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:16px;padding:20px;text-align:center;margin:20px 0;">
           <div style="font-size:12px;color:#047857;letter-spacing:0.08em;text-transform:uppercase;">Voucher code</div>
-          <div style="font-family:monospace;font-size:28px;font-weight:700;color:#064e3b;letter-spacing:0.1em;margin-top:4px;">${voucherCode}</div>
+          <div style="font-family:monospace;font-size:28px;font-weight:700;color:#064e3b;letter-spacing:0.1em;margin-top:4px;">${esc(voucherCode)}</div>
         </div>
         <p style="font-size:14px;color:#475569;line-height:1.6;">
-          This voucher is valid until <strong>${expiresAt.toLocaleString()}</strong>. It can only be used once.
+          This voucher is valid until <strong>${esc(expiresAt.toLocaleString())}</strong>. It can only be used once.
         </p>
         <div style="text-align:center;margin:28px 0 8px;">
-          <a href="${voucherUrl}" style="display:inline-block;background:#f97316;color:white;padding:14px 28px;border-radius:9999px;text-decoration:none;font-weight:600;">View / print voucher</a>
+          <a href="${esc(voucherUrl)}" style="display:inline-block;background:#f97316;color:white;padding:14px 28px;border-radius:9999px;text-decoration:none;font-weight:600;">View / print voucher</a>
         </div>
         <p style="font-size:13px;color:#64748b;line-height:1.6;margin-top:24px;">
           Feeding people is among the noblest acts in our tradition. May this meal nourish you and bring you ease.
@@ -91,7 +106,7 @@ export async function sendVoucherEmail({
   const body = {
     sender: { email: fromEmail, name: fromName },
     to: [{ email: to }],
-    subject: `Your free meal voucher · ${restaurantName}`,
+    subject: `Your free meal voucher · ${restaurantName.replace(/[\r\n]/g, ' ')}`,
     htmlContent: html,
     attachment: [
       {
